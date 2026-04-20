@@ -65,14 +65,14 @@ send_game_over(uint32_t score)
 }
 
 int
-send_score(uint32_t score)
+send_score(uint32_t score, uint16_t garbage_lines)
 {
     struct tetris_message tm;
 
     tm.msg_type = SEND_SCORE;
     tm.qid = my_qid;
     tm.msg_data[0] = score;
-    tm.msg_data[1] = 0;
+    tm.msg_data[1] = garbage_lines;
 
     return msgsnd(other_qid, &tm, sizeof(tm) - sizeof(long), 0);
 }

@@ -59,6 +59,17 @@ struct tetromino {
 
 #include "tetrominos.h"
 
+struct garbage_state {
+    uint16_t garbage;
+    int16_t remain;
+    uint16_t seed;
+};
+
+/* After this number of rows of garbage have been added, a new garbage
+ * column is selected.
+ */
+#define GARBAGE_CHANGE_COUNT 9
+
 struct game_mode {
     uint16_t initial_level;
     uint16_t num_players;
@@ -402,6 +413,29 @@ game_remove_lines(uint16_t * well, const uint16_t *which, uint16_t count)
     }
 }
 
+static void
+game_insert_garbage(uint16_t *well, uint16_t count, struct garbage_state *state)
+{
+    uint16_t i;
+
+    /* Move the stack up by count lines. */
+    for (i = 0; i < (WELL_SIZE - WELL_GUARD_BAND) - count; i++)
+       well[i] = well[i + count];
+
+    for (/* empty */; i < (WELL_SIZE - WELL_GUARD_BAND); i++) {
+       if (--state->remain < 0) {
+           /* Select a new garbage column. */
+           state->garbage =
+               ~((uint16_t)0x8000u >> (lfsr_galois(&state->seed) % 10));
+
+           /* Reset the counter. */
+           state->remain = GARBAGE_CHANGE_COUNT - 1;
+       }
+
+       well[i] = state->garbage;
+    }
+}
+
 #if defined linux
 static void
 tick_sleep(uint16_t t)
@@ -429,6 +463,14 @@ static const uint16_t delay_for_level[] = {
     48, 43, 38, 33, 28, 23, 18, 13,  8,  6,
      5,  5,  5,  4,  4,  4,  3,  3,  3,  2,
      2,  2,  2,  2,  2,  2,  2,  2,  2,  1,
+};
+
+/* Back-to-back bonus is +1 lines of garbage. This bonus should also be awarded
+ * for T-spin clears. Perfect clears, which are not currently tracked, should be
+ * 10 lines of garbage (total) regardless of the clear count or bonus situation.
+ */
+static const uint16_t garbage_for_lines[] = {
+    0, 0, 0, 0, 1, 1, 2, 2, 4, 5
 };
 
 static void
@@ -865,7 +907,11 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
 {
     uint16_t well[WELL_SIZE];
     uint16_t piece_counts[7];
+    struct garbage_state gs;
 
+    gs.garbage = 0;
+    gs.remain = 0;
+    gs.seed = seed;
 
     struct rng_state rngs;
 
@@ -889,6 +935,7 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
     uint32_t score = 0;
     uint32_t their_score = 0;
     bool prev_was_tetris = false;
+    uint16_t garbage_lines = 0;
 
     int16_t send_score_delay = 60;
 
@@ -991,10 +1038,12 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
 
 	    complete_count = game_check_complete_lines(well, complete);
 	    if (complete_count > 0) {
+                uint16_t idx = 2 * complete_count + prev_was_tetris;
+
 		draw_complete_lines(complete, complete_count);
 
 		lines += complete_count;
-		score += level * points_for_lines[2 * complete_count + prev_was_tetris];
+		score += level * points_for_lines[idx];
 		prev_was_tetris = complete_count == 4;
 
 		lines_next_level -= complete_count;
@@ -1014,7 +1063,7 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
                 redraw_score = true;
 
                 if (two_player) {
-                    send_score(score);
+                    send_score(score, garbage_for_lines[idx]);
                     send_score_delay = 60;
                 }
 	    } else {
@@ -1077,6 +1126,12 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
             state = normal;
             redraw_piece = true;
 
+           if (garbage_lines > 0) {
+               game_insert_garbage(well, garbage_lines, &gs);
+               draw_well_from_scratch(well, piece_counts, lines);
+               garbage_lines = 0;
+           }
+
 	    /* If the new piece cannot be placed, the well is full, and the
 	     * game is over.
 	     */
@@ -1125,6 +1180,7 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
                  * The received score must be >= the existing known score.
                  */
                 their_score = tm.msg_data[0];
+                garbage_lines += tm.msg_data[1];
                 redraw_score = true;
             }
         }
@@ -1141,7 +1197,7 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
          * about once per second.
          */
         if (two_player && --send_score_delay < 0) {
-            send_score(score);
+            send_score(score, 0);
             send_score_delay = 60;
         }
 
