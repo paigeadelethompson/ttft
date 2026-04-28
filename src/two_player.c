@@ -78,7 +78,7 @@ send_score(uint32_t score)
 }
 
 int
-connect_to_other_game(void)
+connect_to_other_game(uint16_t *seed)
 {
     int ret;
     key_t k;
@@ -125,9 +125,7 @@ connect_to_other_game(void)
         /* Tell server who we are. */
         tm.msg_type = SET_RNG_SEED;
         tm.qid = my_qid;
-        tm.msg_data[0] = time(NULL);
-
-        srand(tm.msg_data[0]);
+        tm.msg_data[0] = *seed;
 
         if (msgsnd(other_qid, &tm, sizeof(tm) - sizeof(long), 0) == -1) {
             perror("msgsnd - RNG seed");
@@ -155,7 +153,7 @@ connect_to_other_game(void)
 
         other_qid = tm.qid;
 
-        srand(tm.msg_data[0]);
+        *seed = tm.msg_data[0];
 
         tm.msg_type = ACK_RNG_SEED;
         tm.qid = my_qid;

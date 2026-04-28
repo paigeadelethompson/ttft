@@ -13,6 +13,7 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <sys/times.h>
 
 #include "two_player.h"
 
@@ -314,6 +315,24 @@ draw_score(uint32_t score, uint32_t top_score, uint16_t lines, uint16_t level)
     len = format_number_u16(level, buf);
     fprintf(stdout, "\x1b[15;%df", (3 + 2 + 10) - len);
     fwrite(buf, 1, len - 1, stdout);
+}
+
+/* Simple LFSR random number generated taken directly from
+ * https://en.wikipedia.org/wiki/Linear-feedback_shift_register
+ */
+static uint16_t
+lfsr_galois(uint16_t *seed)
+{
+    uint16_t lfsr = *seed;
+    uint16_t msb = lfsr & 0x8000;
+
+    lfsr <<= 1;
+    if (msb != 0)
+        lfsr ^= 0x002Du;
+
+    *seed = lfsr;
+
+    return lfsr;
 }
 
 static void
@@ -695,7 +714,7 @@ do_menu_screen(struct game_mode *mode)
 }
 
 static int
-do_two_player_screen( )
+do_two_player_screen(uint16_t *seed)
 {
     const int box_x = 40 - (46 / 2);
 
@@ -708,7 +727,7 @@ do_two_player_screen( )
 
     move_to(box_x + 3 + 30, 9);
 
-    if (connect_to_other_game() < 0) {
+    if (connect_to_other_game(seed) < 0) {
         printf("failed.");
         fflush(stdout);
     }
@@ -786,22 +805,24 @@ do_two_player_screen( )
 struct rng_state {
     uint8_t prev;
     uint8_t curr;
+    uint16_t seed;
 };
 
 static void
-rng_state_init(struct rng_state *s)
+rng_state_init(struct rng_state *s, uint16_t seed)
 {
     /* Tetrominos are numbered [0, 6]. For the initial state, select different
      * invalid numbers for curr and prev.
      */
     s->prev = 7;
     s->curr = 8;
+    s->seed = seed;
 }
 
 static const struct tetromino *
 select_piece(struct rng_state *s)
 {
-    uint8_t rng = (rand() >> 8) % 7;
+    uint8_t rng = (lfsr_galois(&s->seed) >> 8) % 7;
 
     /* According to https://harddrop.com/wiki/Tetris_(Game_Boy)#Randomizer, the
      * goal of the Game Boy Tetris randomizer was to prevent getting the same
@@ -810,10 +831,10 @@ select_piece(struct rng_state *s)
      */
     if (s->prev == s->curr) {
         if (s->curr == rng) {
-            rng = (rand() >> 8) % 7;
+            rng = (lfsr_galois(&s->seed) >> 8) % 7;
 
             if (s->curr == rng) {
-                rng = (rand() >> 8) % 7;
+                rng = (lfsr_galois(&s->seed) >> 8) % 7;
             }
         }
     }
@@ -840,17 +861,15 @@ enum game_state {
 };
 
 static void
-play_game(uint16_t initial_level, bool two_player)
+play_game(uint16_t initial_level, uint16_t seed, bool two_player)
 {
     uint16_t well[WELL_SIZE];
     uint16_t piece_counts[7];
 
-    if (!two_player)
-        srand(time(NULL));
 
     struct rng_state rngs;
 
-    rng_state_init(&rngs);
+    rng_state_init(&rngs, seed);
 
     game_init_well_state(well);
 
@@ -1146,15 +1165,18 @@ main(int argc, char **argv)
 
         struct game_mode mode;
         if (do_menu_screen(&mode)) {
+            struct tms t;
+            uint16_t seed = times(&t);
+
             if (mode.num_players == 2) {
                 /* If the connection fails for any reason, go back to the title
                  * screen.
                  */
-                if (do_two_player_screen() < 0)
+                if (do_two_player_screen(&seed) < 0)
                     continue;
             }
 
-            play_game(mode.initial_level, mode.num_players == 2);
+            play_game(mode.initial_level, seed, mode.num_players == 2);
         }
     }
 
