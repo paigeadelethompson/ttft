@@ -1,10 +1,18 @@
 all: ttft
 
-ttft: main.c tetrominos.h
-	gcc -O -ggdb3 -Wall main.c -o ttft
+CC = gcc
+CFLAGS = -O -ggdb3 -Wall
+
+OBJS = main.o two_player.o
+
+ttft: $(OBJS)
+	$(CC) $(CFLAGS) $(OBJS) -o ttft
+
+main.o: main.c tetrominos.h
+two_player.o: two_player.c two_player.h
 
 tetrominos.h: generate-tetrominos.py
 	python generate-tetrominos.py > tetrominos.h
 
 clean:
-	rm -f ttft tetrominos.h
+	rm -f $(OBJS) ttft tetrominos.h

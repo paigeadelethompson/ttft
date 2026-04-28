@@ -14,11 +14,14 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include "two_player.h"
+
 #ifdef linux
 #define HAVE_DUP2
 #endif
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(a[0]))
+#define MAX2(a, b) ((a) > (b) ? (a) : (b))
 
 /* Tetris well is 10 blocks wide by 20 blocks tall. This will be drawn as 20
  * characters by 20 characters. The well is drawn 2 lines down from the top of
@@ -290,11 +293,15 @@ format_number_u32(uint32_t n, char *s)
 }
 
 static void
-draw_score(uint32_t score, uint16_t lines, uint16_t level)
+draw_score(uint32_t score, uint32_t top_score, uint16_t lines, uint16_t level)
 {
     /* 10 digits, 3 separators, and a NUL. */
     char buf[10 + 3 + 1];
     int len;
+
+    len = format_number_u32(top_score, buf);
+    fprintf(stdout, "\x1b[m\x1b[6;%df", (3 + 2 + 10) - len);
+    fwrite(buf, 1, len - 1, stdout);
 
     len = format_number_u32(score, buf);
     fprintf(stdout, "\x1b[m\x1b[9;%df", (3 + 2 + 10) - len);
@@ -687,6 +694,95 @@ do_menu_screen(struct game_mode *mode)
     return get_selected(start_widgets) <= 0;
 }
 
+static int
+do_two_player_screen( )
+{
+    const int box_x = 40 - (46 / 2);
+
+    draw_box(box_x, 7, 46, 7);
+
+    move_to(box_x + 3, 9);
+    printf("\x1b(BConnecting to other player...");
+
+    fflush(stdout);
+
+    move_to(box_x + 3 + 30, 9);
+
+    if (connect_to_other_game() < 0) {
+        printf("failed.");
+        fflush(stdout);
+    }
+
+    printf("connected.");
+    move_to(box_x + 3, 10);
+    printf("Press any key when ready to play.");
+    fflush(stdout);
+
+    struct tetris_message tm;
+    bool i_am_ready = false;
+    bool they_are_ready = false;
+    uint16_t i;
+
+    for (i = 0; i < 1800; i++) {
+        char c;
+	if (read(0, &c, 1) > 0) {
+            i_am_ready = true;
+
+            if (!they_are_ready) {
+                move_to(box_x + 3, 10);
+                printf("Waiting for the other player... ");
+                fflush(stdout);
+            }
+
+            send_ready();
+        }
+
+        if (poll_message(&tm) > 0) {
+            if (tm.msg_type == READY_TO_PLAY) {
+                they_are_ready = true;
+
+                if (!i_am_ready) {
+                    move_to(box_x + 3, 11);
+                    printf("(Other player is ready.)");
+                    fflush(stdout);
+                }
+            }
+        }
+
+        if (i_am_ready && they_are_ready)
+            break;
+
+        tick_sleep(1);
+    }
+
+    if (i == 1800)
+        return -1;
+
+    move_to(box_x + 3, 9);
+    printf("                                        ");
+    move_to(box_x + 3, 10);
+    printf("3...                                    ");
+    move_to(box_x + 3, 11);
+    printf("                                        ");
+
+    fflush(stdout);
+    sleep(1);
+    move_to(box_x + 3 + 5, 10);
+    printf("2...");
+    fflush(stdout);
+    sleep(1);
+    move_to(box_x + 3 + 10, 10);
+    printf("1...");
+    fflush(stdout);
+    sleep(1);
+    move_to(box_x + 3 + 15, 10);
+    printf("TETRIS!!!");
+    fflush(stdout);
+    sleep(1);
+
+    return 0;
+}
+
 struct rng_state {
     uint8_t prev;
     uint8_t curr;
@@ -744,12 +840,13 @@ enum game_state {
 };
 
 static void
-play_game(uint16_t initial_level)
+play_game(uint16_t initial_level, bool two_player)
 {
     uint16_t well[WELL_SIZE];
     uint16_t piece_counts[7];
 
-    srand(time(NULL));
+    if (!two_player)
+        srand(time(NULL));
 
     struct rng_state rngs;
 
@@ -771,7 +868,10 @@ play_game(uint16_t initial_level)
     uint16_t delay = delay_reset;
     uint16_t lines = 0;
     uint32_t score = 0;
+    uint32_t their_score = 0;
     bool prev_was_tetris = false;
+
+    int16_t send_score_delay = 60;
 
     int16_t lines_next_level = 10 * (level + 1);
 
@@ -786,7 +886,7 @@ play_game(uint16_t initial_level)
 
     draw_well_from_scratch(well, piece_counts, 0);
     draw_controls();
-    draw_score(score, lines, level);
+    draw_score(score, score, lines, level);
     draw_piece(piece, x, y, rotation);
 
     enum game_state state = spawn_piece;
@@ -893,6 +993,11 @@ play_game(uint16_t initial_level)
                 delay = 20;
                 state = clearing_lines;
                 redraw_score = true;
+
+                if (two_player) {
+                    send_score(score);
+                    send_score_delay = 60;
+                }
 	    } else {
                 state = spawn_piece;
             }
@@ -994,13 +1099,32 @@ play_game(uint16_t initial_level)
             break;
         }
 
+        struct tetris_message tm;
+        if (poll_message(&tm) > 0) {
+            if (tm.msg_type == SEND_SCORE) {
+                /* FINISHME: Some protocol robustness is in order here.
+                 * The received score must be >= the existing known score.
+                 */
+                their_score = tm.msg_data[0];
+                redraw_score = true;
+            }
+        }
+
         if (redraw_score)
-            draw_score(score, lines, level);
+            draw_score(score, MAX2(score, their_score), lines, level);
 
 	if (redraw_piece) {
 	    erase_piece(piece, old_x, old_y, old_rotation);
 	    draw_piece(piece, x, y, rotation);
 	}
+
+        /* So the other player knows this player still exists, send the score
+         * about once per second.
+         */
+        if (two_player && --send_score_delay < 0) {
+            send_score(score);
+            send_score_delay = 60;
+        }
 
         if (redraw_score || redraw_piece)
             fflush(stdout);
@@ -1021,8 +1145,17 @@ main(int argc, char **argv)
             break;
 
         struct game_mode mode;
-        if (do_menu_screen(&mode))
-            play_game(mode.initial_level);
+        if (do_menu_screen(&mode)) {
+            if (mode.num_players == 2) {
+                /* If the connection fails for any reason, go back to the title
+                 * screen.
+                 */
+                if (do_two_player_screen() < 0)
+                    continue;
+            }
+
+            play_game(mode.initial_level, mode.num_players == 2);
+        }
     }
 
     fputs("\x1b[24;0f", stdout);
