@@ -62,6 +62,51 @@ struct game_mode {
 };
 
 static void
+move_to(uint16_t x, uint16_t y)
+{
+    if (y == 0) {
+	printf("\x1b[;%df", x);
+    } else {
+	printf("\x1b[%d;%df", y, x);
+    }
+}
+
+static void
+draw_box(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
+{
+    uint16_t i;
+    uint16_t j;
+
+    printf("\x1b(0\x1b[7m");
+
+    move_to(x, y);
+    printf("lw");
+
+    for (i = 4; i < w; i++)
+        putchar('q');
+
+    printf("wk");
+
+    for (i = 2; i < h; i++) {
+        move_to(x, y + i - 1);
+        printf("xx\x1b[0m");
+
+        for (j = 4; j < w; j++)
+            putchar(' ');
+
+        printf("\x1b[7mxx");
+    }
+
+    move_to(x, y + h - 1);
+    printf("wv");
+
+    for (i = 4; i < w; i++)
+        putchar('q');
+
+    printf("vj\x1b[0m");
+}
+
+static void
 draw_well_from_scratch(const uint16_t *well, const uint16_t *piece_counts,
 		       uint16_t lines)
 {
@@ -144,16 +189,6 @@ draw_controls(void)
 	    "\x1b[23;46f            hard"
 	    "\x1b[24;46f            drop"
 	    "\x1b[3;61f\x1b[0m\x1b)0");
-}
-
-static void
-move_to(uint16_t x, uint16_t y)
-{
-    if (y == 0) {
-	printf("\x1b[;%df", x);
-    } else {
-	printf("\x1b[%d;%df", y, x);
-    }
 }
 
 static void
