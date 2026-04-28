@@ -10,5 +10,4 @@ Still to be done:
 - Provide modern "shuffle" RNG mode. Classic NES and Game Boy Tetris would select each tetromino at random. This could lead to long droughts (see below). Modern Tetris implementations instead shuffle the 7 possible tetrominos. Once all 7 have been provided, they are shuffled again. This means that a particular piece can only occur twice in a row (i.e., when it is last in one shuffle and first in the next). It also means that there can be at most 12 pieces between occurances of any particular piece (i.e., when that piece is first in one shuffle and last in the next). This is sometimes called "7-bag." If you've ever had a long S / Z burst while waiting for an I, you know how much less irritating the shuffle RNG mode is.
 - In classic RNG mode, a drought counter. When it has been more than 12 tetrominos since the last I, the game is in drought. Display the running tally.
 - Allow the RNG seed to be specified somehow.
-- Two-player mode in the spirit of Game Boy Tetris. The intention would be to use more modern [garbage rules](https://tetris.fandom.com/wiki/Garbage).
 - Add a "Tetris rate" display.

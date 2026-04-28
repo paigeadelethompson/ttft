@@ -328,6 +328,59 @@ draw_score(uint32_t score, uint32_t top_score, uint16_t lines, uint16_t level)
     fwrite(buf, 1, len - 1, stdout);
 }
 
+static void
+draw_final_scores(uint32_t my_score, uint32_t their_score, bool all_done)
+{
+    /* 10 digits, 3 separators, and a NUL. */
+    char buf[10 + 3 + 1];
+    int len;
+
+    if (!all_done) {
+        move_to(22, 6);
+        printf("Waiting for other   ");
+        move_to(22, 7);
+        printf("   player to finish.");
+    }
+
+    move_to(22, 9);
+    printf(" Their score:       ");
+    move_to(22, 10);
+
+    len = format_number_u32(their_score, buf);
+    for (uint16_t i = 0; i < (20 - len); i++)
+        putchar(' ');
+
+    printf(buf);
+    putchar(' ');
+
+    move_to(22, 12);
+    printf(" Your score:        ");
+    move_to(22, 13);
+
+    len = format_number_u32(my_score, buf);
+    for (uint16_t i = 0; i < (20 - len); i++)
+        putchar(' ');
+
+    printf(buf);
+    putchar(' ');
+
+    if (all_done) {
+        move_to(22, 15);
+
+        if (their_score > my_score) {
+            printf("==== You  lost. ====");
+        } else if (their_score < my_score) {
+            printf("===== You won! =====");
+        } else {
+            printf("==== Tie game!! ====");
+        }
+
+        move_to(22, 17);
+        printf("Press a key to exit.");
+    }
+}
+
+
 /* Simple LFSR random number generated taken directly from
  * https://en.wikipedia.org/wiki/Linear-feedback_shift_register
  */
@@ -898,6 +951,7 @@ enum game_state {
     clearing_lines,
     spawn_piece,
     close_window,
+    waiting_other_game_over,
     waiting_game_over,
     game_over,
 };
@@ -934,6 +988,7 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
     uint16_t lines = 0;
     uint32_t score = 0;
     uint32_t their_score = 0;
+    bool their_game_over = false;
     bool prev_was_tetris = false;
     uint16_t garbage_lines = 0;
 
@@ -1136,6 +1191,9 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
 	     * game is over.
 	     */
 	    if (!game_can_do(well, piece->f[rotation].mask, x, y)) {
+                if (two_player)
+                    send_game_over(score);
+
                 delay = 1;
                 y = 3;
                 state = close_window;
@@ -1155,13 +1213,24 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
                     delay = 7;
                     y++;
                 } else {
-                    move_to(22, 13);
-                    printf("Press a key to exit.");
-                    fflush(stdout);
+                    if (two_player) {
+                        draw_final_scores(score, their_score, their_game_over);
+                        state = waiting_other_game_over;
+                    } else {
+                        move_to(22, 13);
+                        printf("Press a key to exit.");
 
-                    state = waiting_game_over;
+                        state = waiting_game_over;
+                    }
+
+                    fflush(stdout);
                 }
             }
+            break;
+
+        case waiting_other_game_over:
+            if (their_game_over)
+                state = waiting_game_over;
             break;
 
         case waiting_game_over:
@@ -1182,11 +1251,20 @@ play_game(uint16_t initial_level, uint16_t seed, bool two_player)
                 their_score = tm.msg_data[0];
                 garbage_lines += tm.msg_data[1];
                 redraw_score = true;
+            } else if (tm.msg_type == MY_GAME_OVER) {
+                their_game_over = true;
+                their_score = tm.msg_data[0];
             }
         }
 
-        if (redraw_score)
+        if (redraw_score) {
             draw_score(score, MAX2(score, their_score), lines, level);
+
+            if (two_player && (state == waiting_other_game_over ||
+                               state == waiting_game_over)) {
+                draw_final_scores(score, their_score, their_game_over);
+            }
+        }
 
 	if (redraw_piece) {
 	    erase_piece(piece, old_x, old_y, old_rotation);
