@@ -2,3 +2,5 @@
 ttft
 src/tetrominos.h
 *.o
+a.out
+

@@ -2,6 +2,7 @@
  * Copyright © 2026 Ian D. Romanick
  * SPDX-License-Identifier: GPL-3.0-only
  */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -15,9 +16,13 @@
 #include <assert.h>
 #include <sys/times.h>
 
+#if defined(__FreeBSD__)
+#include <stdbool.h>
+#endif
+
 #include "two_player.h"
 
-#ifdef linux
+#if defined(__linux__) || defined(__FreeBSD__)
 #define HAVE_DUP2
 #endif
 
@@ -489,7 +494,7 @@ game_insert_garbage(uint16_t *well, uint16_t count, struct garbage_state *state)
     }
 }
 
-#if defined linux
+#if defined(__linux__) || defined(__FreeBSD__)
 static void
 tick_sleep(uint16_t t)
 {
