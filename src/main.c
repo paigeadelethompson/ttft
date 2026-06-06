@@ -17,6 +17,11 @@
 
 #include "two_player.h"
 
+#ifdef __FreeBSD__ 
+#include <stdbool.h>
+#define HAVE_DUP2
+#endif 
+
 #ifdef linux
 #define HAVE_DUP2
 #endif
@@ -489,7 +494,7 @@ game_insert_garbage(uint16_t *well, uint16_t count, struct garbage_state *state)
     }
 }
 
-#if defined linux
+#if defined linux || defined __FreeBSD__
 static void
 tick_sleep(uint16_t t)
 {

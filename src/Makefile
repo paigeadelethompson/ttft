@@ -12,7 +12,7 @@ main.o: main.c tetrominos.h
 two_player.o: two_player.c two_player.h
 
 tetrominos.h: generate-tetrominos.py
-	python generate-tetrominos.py > tetrominos.h
+	./generate-tetrominos.py > tetrominos.h
 
 clean:
 	rm -f $(OBJS) ttft tetrominos.h

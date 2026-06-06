@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright © 2026 Ian D. Romanick
 # SPDX-License-Identifier: GPL-3.0-only
